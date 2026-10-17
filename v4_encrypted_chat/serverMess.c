@@ -411,7 +411,7 @@ void* worker(void* arg) {
     client_data* cli = (client_data*)arg;
     char buf[2048];
     char encrypted_in[2048];
-    char decrypted_in[1024];
+    char decrypted_in[MAX_B64];
     char plaintext_resp[1024];
     char encrypted_out[2048];
     int len = 0;
@@ -422,9 +422,9 @@ void* worker(void* arg) {
         }
 
         // Décryptage du message entrant
-        if (decrypt_msg(encrypted_in, decrypted_in) <= 0) {
+        if (decrypt_msg(encrypted_in, decrypted_in, sizeof(decrypted_in)) <= 0) {
             snprintf(plaintext_resp, sizeof(plaintext_resp), "fail decryption error\n");
-            encrypt_msg(plaintext_resp, encrypted_out);
+            encrypt_msg(plaintext_resp, encrypted_out, sizeof(encrypted_out));
             write_full(cli->sock, encrypted_out, strlen(encrypted_out));
             continue;
         }
@@ -433,7 +433,7 @@ void* worker(void* arg) {
 
         // Chiffrement et envoi de la réponse
         if (strlen(plaintext_resp) > 0) {
-            encrypt_msg(plaintext_resp, encrypted_out);
+            encrypt_msg(plaintext_resp, encrypted_out, sizeof(encrypted_out));
             if (write_full(cli->sock, encrypted_out, strlen(encrypted_out)) < 0) {
                 break;
             }

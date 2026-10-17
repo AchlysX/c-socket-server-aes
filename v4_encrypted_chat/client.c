@@ -98,7 +98,7 @@ void speak_to_server(int sockfd) {
     char input[BUFFER_SIZE];
     char response[2048];
     char encrypted_out[2048];
-    char decrypted_in[BUFFER_SIZE];
+    char decrypted_in[MAX_B64];
 
     while (1) {
         printf("> ");
@@ -110,7 +110,7 @@ void speak_to_server(int sockfd) {
         if (strlen(input) == 0) continue;
 
         // Chiffrement AES-256-GCM + Base64
-        if (encrypt_msg(input, encrypted_out) < 0) {
+        if (encrypt_msg(input, encrypted_out, sizeof(encrypted_out)) < 0) {
             fprintf(stderr, "Error: encryption failed\n");
             continue;
         }
@@ -119,7 +119,7 @@ void speak_to_server(int sockfd) {
 
         // Réception et déchiffrement
         if (get_response(sockfd, response, sizeof(response)) == -1) break;
-        if (decrypt_msg(response, decrypted_in) > 0) {
+        if (decrypt_msg(response, decrypted_in, sizeof(decrypted_in)) > 0) {
             printf("Server: %s", decrypted_in);
             if (decrypted_in[strlen(decrypted_in) - 1] != '\n') {
                 printf("\n");
