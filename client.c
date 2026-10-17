@@ -6,11 +6,10 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netdb.h>
-#include <crypto.h>
 
 #define BUFFER_SIZE 1024
 
-// Fonction pour se connecter au serveur
+// Connexion au serveur via TCP
 int connect_server(const char *host, const char *port) {
     int sockfd;
     struct addrinfo hints, *servinfo, *p;
@@ -25,7 +24,7 @@ int connect_server(const char *host, const char *port) {
         return -1;
     }
 
-    // parcourir les résultats, connecter au premier possible
+    // Parcourir les résultats et se connecter au premier possible
     for (p = servinfo; p != NULL; p = p->ai_next) {
         if ((sockfd = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1) {
             perror("client: socket");
@@ -43,15 +42,15 @@ int connect_server(const char *host, const char *port) {
 
     if (p == NULL) {
         fprintf(stderr, "client: failed to connect\n");
+        freeaddrinfo(servinfo);
         return -1;
     }
 
     freeaddrinfo(servinfo);
-
     return sockfd;
 }
 
-// Fonction pour envoyer un message au serveur
+// Envoi d'un message complet au serveur
 int write_all(int sockfd, const char *buf, size_t len) {
     size_t total_sent = 0;
     ssize_t sent_bytes;
@@ -68,13 +67,13 @@ int write_all(int sockfd, const char *buf, size_t len) {
     return 0;
 }
 
-// Fonction pour recevoir la réponse du serveur
+// Réception de la réponse du serveur jusqu'au saut de ligne
 int get_response(int sockfd, char *buf, size_t buf_size) {
     ssize_t bytes_received;
-    int total_bytes = 0;
+    size_t total_bytes = 0;
 
-    while (1) {
-        bytes_received = recv(sockfd, buf + total_bytes, buf_size - total_bytes, 0);
+    while (total_bytes < buf_size - 1) {
+        bytes_received = recv(sockfd, buf + total_bytes, 1, 0);
         if (bytes_received <= 0) {
             if (bytes_received == 0) {
                 printf("Server closed connection.\n");
@@ -85,46 +84,46 @@ int get_response(int sockfd, char *buf, size_t buf_size) {
         }
 
         total_bytes += bytes_received;
-
         if (buf[total_bytes - 1] == '\n') {
             break;
         }
     }
 
     buf[total_bytes] = '\0';
-
     return 0;
 }
 
-// Fonction pour gérer la communication avec le serveur
+// Boucle principale de communication non chiffrée (v1 à v3)
 void speak_to_server(int sockfd) {
     char input[BUFFER_SIZE];
     char response[BUFFER_SIZE];
-    char encrypted_out[2048]; // Larger buffer for Base64 overhead
-    char decrypted_in[BUFFER_SIZE];
 
     while (1) {
         printf("> ");
+        fflush(stdout);
+
         if (fgets(input, BUFFER_SIZE, stdin) == NULL) break;
-        input[strcspn(input, "\n")] = '\0'; 
+        input[strcspn(input, "\r\n")] = '\0'; 
         
-        if (strcmp(input, "q") == 0 || strcmp(input, "quit") == 0) break;
+        if (strlen(input) == 0) continue;
 
-        // Encrypte
-        encrypt_msg(input, encrypted_out);
-        if (writeall(sockfd, encrypted_out, strlen(encrypted_out)) == -1) break;
+        // Envoi de la commande avec saut de ligne
+        if (write_all(sockfd, input, strlen(input)) == -1) break;
+        if (write_all(sockfd, "\n", 1) == -1) break;
 
-        // Recoit et décrypte
-        if (getresponse(sockfd, response, BUFFER_SIZE) == -1) break;
-        if (decrypt_msg(response, decrypted_in) > 0) {
-            printf("Server: %s\n", decrypted_in);
-        } else {
-            printf("Error: Failed to decrypt server response.\n");
+        // Réception de la réponse
+        if (get_response(sockfd, response, sizeof(response)) == -1) break;
+        printf("Server: %s", response);
+        if (response[strlen(response) - 1] != '\n') {
+            printf("\n");
+        }
+
+        if (strcmp(input, "quit") == 0 || strcmp(input, "/quit") == 0 || strcmp(input, "q") == 0) {
+            break;
         }
     }
     close(sockfd);
 }
-
 
 int main(int argc, char *argv[]) {
     if (argc != 3) {

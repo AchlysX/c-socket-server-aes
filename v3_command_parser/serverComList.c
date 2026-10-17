@@ -85,20 +85,23 @@ void client_arrived(int client_socket) {
 
     printf("Nombre de clients actifs : %d\n", nr_clients);
     printf("Liste des clients connectés : ");
+    pthread_mutex_lock(&lock);
     client_data* current = first;
     while (current != NULL) {
-        printf("%d ", current->sock);
+        printf("%d ", current->client_id);
         current = current->next;
     }
+    pthread_mutex_unlock(&lock);
     printf("\n\n");
 
     pthread_create(&cli->thread, NULL, worker, (void*)cli);
+    pthread_detach(cli->thread);
 }
 //fin des fonctions clients
 
 //les fonctions de commande
 int do_echo(char *args, char *resp){
-    snprintf(resp, 1024, "ok %s\n", args);
+    snprintf(resp, 1024, "ok %s\n", args ? args : "");
     return 0;
 }
 
@@ -130,18 +133,20 @@ int do_time(char *resp) {
 }
 
 int do_quit(client_data* cli, char *resp) {
+    (void)cli;
     strcpy(resp, "ok quitting\n");
     return -1;
 }
 
 int do_list(char *resp) {
+    pthread_mutex_lock(&lock);
     client_data* current = first;
-    int client_id = nr_clients;
     resp[0] = '\0';
     while (current != NULL) {
-        snprintf(resp + strlen(resp), 1024 - strlen(resp), "%d ", client_id++);
+        snprintf(resp + strlen(resp), 1024 - strlen(resp), "%d ", current->client_id);
         current = current->next;
     }
+    pthread_mutex_unlock(&lock);
     strcat(resp, "\n");
     return 0;
 }
@@ -178,8 +183,8 @@ int get_question(int sock, char *buffer, int *len, char* question) {
         }
     }
 
-    if (bytes_received < 0) {
-        perror("Error in Read");
+    // Déconnexion ou erreur
+    if (bytes_received <= 0 && *len == 0) {
         return -1;
     }
 
@@ -197,6 +202,16 @@ int eval_quest(client_data* cli, char *question, char *resp) {
 
     question[strcspn(question, "\r\n")] = '\0';
     command = strtok_r(question, " ", &saveptr);
+    if (command == NULL) {
+        resp[0] = '\0';
+        return 0;
+    }
+
+    // Permet d'accepter les commandes avec ou sans '/'
+    if (command[0] == '/') {
+        command++;
+    }
+
     args = strtok_r(NULL, "", &saveptr);
 
     if (strcmp(command, "echo") == 0){
@@ -230,15 +245,17 @@ void* worker(void* arg) {
 
     while (1) {
         if (get_question(cli->sock, buf, &len, question) < 0)
-            break; /* erreur: on déconnecte le client */
-        if (eval_quest(cli, question, response) < 0)
-            break; /* erreur: on déconnecte le client */
-        if (write_full(cli->sock, response, strlen(response)) < 0) {
-            perror("could not send message");
-            break; /* erreur: on déconnecte le client */
+            break; /* erreur ou déconnexion */
+        int ret = eval_quest(cli, question, response);
+        if (strlen(response) > 0) {
+            if (write_full(cli->sock, response, strlen(response)) < 0) {
+                perror("could not send message");
+                break;
+            }
         }
-        if (strcmp(response, "ok quitting\n") == 0)
-            break; // quit the loop when client quits
+        if (ret < 0) {
+            break; // Commande quit demandée
+        }
     }
 
     free_client(cli);

@@ -60,13 +60,14 @@ void client_arrived(int client_socket) {
     }
 
     pthread_create(&cli->thread, NULL, worker, (void*)cli);
+    pthread_detach(cli->thread);
     printf("Nombre de clients actifs : %d\n", nr_clients);
 }
 //fin des fonctions clients
 
 //fonctions de commande
 int do_echo(char *args, char *resp){
-    snprintf(resp, 1024, "ok %s\n", args);
+    snprintf(resp, 1024, "ok %s\n", args ? args : "");
     return 0;
 }
 
@@ -98,6 +99,7 @@ int do_time(char *resp) {
 }
 
 int do_quit(client_data* cli, char *resp) {
+    (void)cli;
     strcpy(resp, "ok quitting\n");
     return -1;
 }
@@ -135,8 +137,8 @@ int get_question(int sock, char *buffer, int *len, char* question) {
         }
     }
 
-    if (bytes_received < 0) {
-        perror("Error in Read");
+    // Déconnexion ou erreur
+    if (bytes_received <= 0 && *len == 0) {
         return -1;
     }
 
@@ -154,6 +156,16 @@ int eval_quest(client_data* cli, char *question, char *resp) {
 
     question[strcspn(question, "\r\n")] = '\0';
     command = strtok_r(question, " ", &saveptr);
+    if (command == NULL) {
+        resp[0] = '\0';
+        return 0;
+    }
+
+    // Permet d'accepter les commandes avec ou sans '/'
+    if (command[0] == '/') {
+        command++;
+    }
+
     args = strtok_r(NULL, "", &saveptr);
 
     if (strcmp(command, "echo") == 0)
@@ -178,31 +190,24 @@ void* worker(void* arg) {
     char response[1024];
     int len = 0;
 
-    int error_flag = 0;
-
     while (1) {
         if (get_question(cli->sock, buf, &len, question) < 0) {
-            perror("Error reading from client");
-            error_flag = 1;
-            break;
+            break; // Client déconnecté ou erreur
         }
-        if (eval_quest(cli, question, response) < 0) {
-            perror("Error processing command");
-            error_flag = 1;
-            break;
+        int ret = eval_quest(cli, question, response);
+        if (strlen(response) > 0) {
+            if (write_full(cli->sock, response, strlen(response)) < 0) {
+                break;
+            }
         }
-        if (write_full(cli->sock, response, strlen(response)) < 0) {
-            perror("Error sending response to client");
-            error_flag = 1;
-            break;
+        if (ret < 0) {
+            break; // Commande quit demandée
         }
     }
 
-    if (error_flag) {
-        free_client(cli);
-        printf("******* \t Un Client s'est déconnecté. \t *******\n");
-        printf("Clients restants: %d \n \n", nr_clients);
-    }
+    free_client(cli);
+    printf("******* \t Un Client s'est déconnecté. \t *******\n");
+    printf("Clients restants: %d \n \n", nr_clients);
 
     pthread_exit(NULL);
 }

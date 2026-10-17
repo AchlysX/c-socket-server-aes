@@ -1,0 +1,15 @@
+# Build artifacts
+client
+client_enc
+server
+server_enc
+server_com
+server_com_list
+*.o
+*.out
+
+# Core dumps & logs
+*.core
+vgcore.*
+*.log
+

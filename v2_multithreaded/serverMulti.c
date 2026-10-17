@@ -8,6 +8,9 @@
 #include <signal.h>
 #include <pthread.h>
 
+//prédefinition
+void* worker(void* arg);
+
 //Les variables locales
 int nr_clients = 0;
 pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
@@ -45,6 +48,18 @@ void free_client(client_data* cli) {
     nr_clients--;
     pthread_mutex_unlock(&lock);
 }
+
+void client_arrived(int client_socket) {
+    client_data* cli = alloc_client(client_socket);
+    if (cli == NULL) {
+        perror("Error in allocating client");
+        close(client_socket);
+        return;
+    }
+    pthread_create(&cli->thread, NULL, worker, (void*)cli);
+    pthread_detach(cli->thread);
+    printf("Nombre de clients actifs : %d\n", nr_clients);
+}
 //fin des fonctions clients
 
 void* worker(void* arg) {
@@ -73,8 +88,7 @@ void* worker(void* arg) {
 
     free_client(cli);
     printf("******* \t Un Client s'est déconnecté. \t *******\n");
-    free_client(cli);
-    printf("Clients réstants: %d \n \n",nr_clients);
+    printf("Clients réstants: %d \n \n", nr_clients);
 
     pthread_exit(NULL);
 }
